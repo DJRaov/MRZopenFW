@@ -112,15 +112,15 @@ void parseGNSSframe() {
       gpsH = int(nmea.getHour());
       gpsM = int(nmea.getMinute());
       gpsS = int(nmea.getSecond());
-      gpsLat = int(nmea.getLatitude()) / 1000000;
-      gpsLon = int(nmea.getLongitude()) / 1000000;
+      gpsLat = float(nmea.getLatitude()) / 1000000;
+      gpsLon = float(nmea.getLongitude()) / 1000000;
       if (nmea.getAltitude(alt)) {
         gpsAlt = alt / 1000;
       } else {
         gpsAlt = -1;
       }
-      gpsSpeed = int(nmea.getSpeed()) / 1000;
-      gpsCourse = int(nmea.getCourse()) / 1000;
+      gpsSpeed = float(nmea.getSpeed()) / 1000;
+      gpsCourse = float(nmea.getCourse()) / 1000;
       /*extUART.write(gpsSats.convertToCharArray());
       extUART.write(" sats\n");
       extUART.write(gpsH,DEC);

@@ -34,6 +34,25 @@ HardwareSerial extUART(PA10, PA9);
 HardwareSerial gpsUART(PB4, PB3);
 
 //================================ Variables =================================
+int FcountOffset = 0;     //F-Counter Offset [-1024 - 1023]
+byte RCountDivRatio = 1;  //RF R Counter Divide Ratio [1 - 15]
+bool xtalDoubler = 0;     //Crystal Doubler
+bool intXOSC = 0;         //Internal XOSC
+
+byte modulation = 0;    //[FSK(0), GFSK(1), ASK(2), OOK(3)] (GFSK needs HW mod, refer to ADF7012B datasheet)
+bool gaussOOK = 0;      //Needs HW mod, refer to ADF7012B datasheet
+int modDev = 0;         //Refer to datasheet
+byte gfskModCtl = 0;    //[0 - 7] (GFSK only)
+byte indexCounter = 0;  //[16,32,64,128]
+
+bool PLLenable = 1;     //[0 - 1]
+bool PAenable = 1;      //[0 - 1]
+bool clkOutEnable = 0;  //[0 - 1]
+bool dataInvert = 0;    //[0 - 1]
+
+
+//=========================== Internal variables =============================
+//GNSS vars
 bool gpsAlive = 0;
 int gpsSats = 0;
 bool gpsValid = 0;
@@ -45,10 +64,31 @@ float gpsLon = 0;
 float gpsAlt = 0;
 float gpsSpeed = 0;
 float gpsCourse = 0;
+
+//ADF7012 vars
+//reg0
+byte clkOutDivRatio = 16;  //[2 - 30]
+byte vcoAdjust = 0;        //[0 - 4]
+int outputDiv = 0;         //[0 - 8, even only]
+
+//reg1
+int modDivRatio = 0;      //[0 - 4095]
+byte NcountDivRatio = 0;  //[0 - 255]
+bool prescaler = 0;       //[4/5(0) or 8/9(1)]
+
+//reg3
+byte chargePumpI = 2;     //[0 - 3]
+bool bleedUp = 0;
+bool bleedDown = 0;
+bool vcoEnable = 0;
+byte muxOut = 0;          //Refer to ADF7012B datasheet
+bool ldPrecision = 0;
+byte vcoBiasI = 7;        //[1 - 15]
+byte paBias = 5;          //[0 - 7]
 //============================================================================
 
 HardwareTimer *okLEDtimer = new HardwareTimer(TIM3);
-HardwareTimer *GNSSframeRead = new HardwareTimer(TIM6);
+HardwareTimer *gnssFrameRead = new HardwareTimer(TIM6);
 HardwareTimer *TXcfgClock = new HardwareTimer(TIM7);
 
 //NMEA Parser setup
@@ -59,13 +99,16 @@ void setup() {
   pinMode(okLED, OUTPUT);
   extUART.begin(115200);
   gpsUART.begin(9600);
+
+  //GNSS HS mode
   MicroNMEA::sendSentence(gpsUART, "$PMTK251,38400*27");
   delay(100);
   gpsUART.flush();
   gpsUART.begin(38400);
+
   //GNSS preamble check timer
-  GNSSframeRead->attachInterrupt(parseGNSSframe);
-  GNSSframeRead->setOverflow(200, HERTZ_FORMAT);
+  gnssFrameRead->attachInterrupt(parseGNSSframe);
+  gnssFrameRead->setOverflow(200, HERTZ_FORMAT);
 
   //OK LED feedback timer
   okLEDtimer->setPWM(2, okLED, 4, 50);  //4hz = no GPS lock, 2hz = 2D lock, solid = 3D lock; 15hz = borked gnss
@@ -84,8 +127,8 @@ void setup() {
         }
       }
     }
-    if (char(gpsUART.read()) == 0x24){
-      gpsAlive=1;
+    if (char(gpsUART.read()) == 0x24) {
+      gpsAlive = 1;
     }
     if (gpsAlive == 1) {
       okLEDtimer->resume();
@@ -93,15 +136,13 @@ void setup() {
       MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1*37");
       delay(100);
       MicroNMEA::sendSentence(gpsUART, "$PMTK352,0*2B")
-      GNSSframeRead->resume();
+        gnssFrameRead->resume();
       //MicroNMEA::sendSentence(gpsUART, );
       break;
     }
-    
   }
 }
 void loop() {
-
 }
 
 void parseGNSSframe() {
@@ -143,9 +184,9 @@ void parseGNSSframe() {
       extUART.print(":");
       extUART.print(gpsS);
       extUART.print(" | ");
-      extUART.print(gpsLat,4);
+      extUART.print(gpsLat, 4);
       extUART.print(",");
-      extUART.print(gpsLon,4);
+      extUART.print(gpsLon, 4);
       extUART.print(" ");
       extUART.print(gpsAlt);
       extUART.print("m");

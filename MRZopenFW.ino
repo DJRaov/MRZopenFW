@@ -84,21 +84,24 @@ void setup() {
         }
       }
     }
+    if (char(gpsUART.read()) == 0x24){
+      gpsAlive=1;
+    }
     if (gpsAlive == 1) {
       okLEDtimer->resume();
       extUART.write("GNSS found and responding! Sending init commands...\n");
       MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1*37");
       delay(100);
+      MicroNMEA::sendSentence(gpsUART, "$PMTK352,0*2B")
       GNSSframeRead->resume();
       //MicroNMEA::sendSentence(gpsUART, );
       break;
     }
-    if (char(gpsUART.read()) == 0x24){
-      gpsAlive=1;
-    }
+    
   }
 }
 void loop() {
+
 }
 
 void parseGNSSframe() {
@@ -128,7 +131,7 @@ void parseGNSSframe() {
         gpsAlt = -1;
       }
       gpsSpeed = float(nmea.getSpeed()) / 1000;
-      gpsCourse = float(nmea.getCourse()) / 1000;
+      gpsCourse = int(nmea.getCourse()) / 1000;
       extUART.print("MSGID: ");
       extUART.print(nmea.getMessageID());
       extUART.print(" | ");
@@ -140,9 +143,18 @@ void parseGNSSframe() {
       extUART.print(":");
       extUART.print(gpsS);
       extUART.print(" | ");
-      extUART.print(gpsLat);
+      extUART.print(gpsLat,4);
       extUART.print(",");
-      extUART.print(gpsLon);
+      extUART.print(gpsLon,4);
+      extUART.print(" ");
+      extUART.print(gpsAlt);
+      extUART.print("m");
+      extUART.print(" | ");
+      extUART.print(gpsSpeed);
+      extUART.print("km/h | ");
+      extUART.print(gpsCourse);
+      extUART.print("* | ");
+      extUART.print(nmea.getSentence());
       extUART.print("\n");
       gpsUART.flush();
       break;

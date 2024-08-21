@@ -29,6 +29,13 @@ PE9: Sensor 2 SDADC (humidity?)
 #include <MicroNMEA.h>
 
 #define okLED PA4
+#define adfChipEN PB8
+#define adfLoadEN PB9
+#define adfCfgClk PC13
+#define adfCfgData PC14
+#define adfMuxOut PA2
+#define adfTXdata PA3
+
 
 HardwareSerial extUART(PA10, PA9);
 HardwareSerial gpsUART(PB4, PB3);
@@ -49,10 +56,10 @@ byte gfskModCtl = 0;    //[0 - 7] (GFSK only)
 byte indexCounter = 0;  //[16,32,64,128]
 
 //ADF7012 reg3
-bool PLLenable = 1;     
-bool PAenable = 1;      
-bool clkOutEnable = 0;  
-bool dataInvert = 0;    
+bool PLLenable = 1;
+bool PAenable = 1;
+bool clkOutEnable = 0;
+bool dataInvert = 0;
 
 
 //=========================== Internal variables =============================
@@ -81,16 +88,16 @@ byte NcountDivRatio = 0;  //[0 - 255]
 bool prescaler = 0;       //[4/5(0) or 8/9(1)]
 
 //reg3
-byte chargePumpI = 2;  //[0 - 3]
+byte chargePumpI = 3;  //[0 - 3]
 bool bleedUp = 0;
 bool bleedDown = 0;
-bool vcoEnable = 0;
+bool vcoDisable = 0;
 byte muxOut = 0;  //Refer to ADF7012B datasheet
 bool ldPrecision = 0;
 byte vcoBiasI = 7;  //[1 - 15]
 byte paBias = 5;    //[0 - 7]
 
-char err[32];
+int err = 0;
 //============================================================================
 
 HardwareTimer *okLEDtimer = new HardwareTimer(TIM3);
@@ -98,11 +105,16 @@ HardwareTimer *gnssFrameRead = new HardwareTimer(TIM6);
 HardwareTimer *TXcfgClock = new HardwareTimer(TIM7);
 
 //NMEA Parser setup
-char buffer[85];
-MicroNMEA nmea(buffer, sizeof(buffer));
+char gnssFrameBuffer[85];
+MicroNMEA nmea(gnssFrameBuffer, sizeof(gnssFrameBuffer));
 
 void setup() {
   pinMode(okLED, OUTPUT);
+  pinMode(adfChipEN, OUTPUT);
+  pinMode(adfLoadEN, OUTPUT);
+  pinMode(adfCfgClk, OUTPUT);
+  pinMode(adfCfgData, OUTPUT);
+  pinMode(adfTXdata, OUTPUT);
   extUART.begin(115200);
   gpsUART.begin(9600);
 
@@ -111,20 +123,28 @@ void setup() {
   delay(100);
   gpsUART.flush();
   gpsUART.begin(38400);
-  MicroNMEA::sendSentence(gpsUART, "$PMTK101*30"); //hot reset Just in case(tm)
+  MicroNMEA::sendSentence(gpsUART, "$PMTK101*30");  //hot reset Just in case(tm)
 
   //GNSS preamble check timer
   gnssFrameRead->attachInterrupt(parseGNSSframe);
-  gnssFrameRead->setOverflow(1000, HERTZ_FORMAT); //PPS is not connected, gotta make do.
+  gnssFrameRead->setOverflow(1000, HERTZ_FORMAT);  //PPS is not connected, gotta make do.
 
   //OK LED feedback timer
   okLEDtimer->setPWM(2, okLED, 4, 50);  //4hz = no GPS lock, 2hz = 2D lock, solid = 3D lock; 15hz = borked gnss
   digitalWrite(okLED, HIGH);
 
+  gnssCheck();
+  initTX();
+  gnssFrameRead->resume();
+}
+void loop() {
+}
+
+void gnssCheck() { //GNSS presence check routine
   while (millis() <= 10000) {  //GNSS presence check
     if (millis() == 10000) {
       if (gpsAlive == 0) {
-        //err = "gps";
+        err = 2;
         errorHandler();
       }
     }
@@ -137,16 +157,13 @@ void setup() {
       MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1*37");
       delay(100);
       MicroNMEA::sendSentence(gpsUART, "$PMTK352,0*2B");
-      gnssFrameRead->resume();
       //MicroNMEA::sendSentence(gpsUART, ); //gonna be used later(tm)
       break;
     }
   }
 }
-void loop() {
-}
 
-void parseGNSSframe() { //GNSS frame parser
+void parseGNSSframe() {  //GNSS frame parser
   long alt;
   while (gpsUART.available()) {
     char c = gpsUART.read();
@@ -203,49 +220,33 @@ void parseGNSSframe() { //GNSS frame parser
   }
 }
 
-void initTX() { //ADF7012B init void
+void initTX() {  //ADF7012B initialization routine
   bool readyToSend = 0;
   unsigned long cfgFrame = 0;
   for (byte regCount = 0; regCount <= 3; regCount++) {
     switch (regCount) {
       case 0:
         {
-          cfgFrame = 
-          (0) |
-          ((unsigned long)(fCountOffset & 0x7FF) << 2)|
-          ((unsigned long)(rCountDivRatio & 0xF) << 13)|
-          ((unsigned long)(xtalDoubler & 0x1) << 17)|
-          ((unsigned long)(intXOSC & 0x1) << 18)|
-          ((unsigned long)(clkOutDivRatio & 0xF) << 19)|
-          ((unsigned long)(vcoAdjust & 0x3) << 23)|
-          ((unsigned long)(outputDiv & 0x3) << 25);
+          cfgFrame =
+            (0) | ((unsigned long)(fCountOffset & 0x7FF) << 2) | ((unsigned long)(rCountDivRatio & 0xF) << 13) | ((unsigned long)(xtalDoubler & 0x1) << 17) | ((unsigned long)(intXOSC & 0x1) << 18) | ((unsigned long)(clkOutDivRatio & 0xF) << 19) | ((unsigned long)(vcoAdjust & 0x3) << 23) | ((unsigned long)(outputDiv & 0x3) << 25);
           extUART.print("Register 0: ");
           extUART.println(cfgFrame, BIN);
-          readyToSend=1;
+          readyToSend = 1;
           break;
         }
       case 1:
         {
-          cfgFrame = 
-          (1) |
-          ((unsigned long)(modDivRatio & 0xFFF) << 2)|
-          ((unsigned long)(NcountDivRatio & 0xFF) << 14)|
-          ((unsigned long)(prescaler & 0x1) << 22);
+          cfgFrame =
+            (1) | ((unsigned long)(modDivRatio & 0xFFF) << 2) | ((unsigned long)(NcountDivRatio & 0xFF) << 14) | ((unsigned long)(prescaler & 0x1) << 22);
           extUART.print("Register 1: ");
           extUART.println(cfgFrame, BIN);
-          readyToSend=1;
+          readyToSend = 1;
           break;
         }
       case 2:
         {
-          cfgFrame = 
-          (2) |
-          ((unsigned long)(modulation & 0x3) << 2)|
-          ((unsigned long)(gaussOOK & 0x1) << 4)|
-          ((unsigned long)(paLevel & 0x3F) << 5)|
-          ((unsigned long)(modDev & 0x1FF) << 11)|
-          ((unsigned long)(gfskModCtl & 0x7) << 20)|
-          ((unsigned long)(indexCounter & 0x3) << 23);
+          cfgFrame =
+            (2) | ((unsigned long)(modulation & 0x3) << 2) | ((unsigned long)(gaussOOK & 0x1) << 4) | ((unsigned long)(paLevel & 0x3F) << 5) | ((unsigned long)(modDev & 0x1FF) << 11) | ((unsigned long)(gfskModCtl & 0x7) << 20) | ((unsigned long)(indexCounter & 0x3) << 23);
           extUART.print("Register 2: ");
           extUART.print(cfgFrame, BIN);
           break;
@@ -253,51 +254,49 @@ void initTX() { //ADF7012B init void
       case 3:
         {
           cfgFrame =
-          (3) |
-          ((unsigned long)(PLLenable & 0x1) << 2)|
-          ((unsigned long)(PAenable & 0x1) << 3)|
-          ((unsigned long)(clkOutEnable & 0x1) << 4)|
-          ((unsigned long)(dataInvert & 0x1) << 5)|
-          ((unsigned long)(chargePumpI & 0x3) << 6)|
-          ((unsigned long)(bleedUp & 0x1) << 8)|
-          ((unsigned long)(bleedDown & 0xF) << 9)|
-          ((unsigned long)(!vcoEnable & 0x1) << 10)|
-          ((unsigned long)(muxOut & 0xF) << 11)|
-          ((unsigned long)(ldPrecision & 0x1F) << 15)|
-          ((unsigned long)(vcoBiasI & 0xF) << 16)|
-          ((unsigned long)(paBias & 0xF) << 20);
+            (3) | ((unsigned long)(PLLenable & 0x1) << 2) | ((unsigned long)(PAenable & 0x1) << 3) | ((unsigned long)(clkOutEnable & 0x1) << 4) | ((unsigned long)(dataInvert & 0x1) << 5) | ((unsigned long)(chargePumpI & 0x3) << 6) | ((unsigned long)(bleedUp & 0x1) << 8) | ((unsigned long)(bleedDown & 0xF) << 9) | ((unsigned long)(!vcoDisable & 0x1) << 10) | ((unsigned long)(muxOut & 0xF) << 11) | ((unsigned long)(ldPrecision & 0x1F) << 15) | ((unsigned long)(vcoBiasI & 0xF) << 16) | ((unsigned long)(paBias & 0xF) << 20);
           extUART.print("Register 3: ");
-          extUART.print(cfgFrame, BIN); 
+          extUART.print(cfgFrame, BIN);
           break;
         }
     }
-    /*if (readyToSend == 1) {
-      TXcfgClock->resume();
+    if (readyToSend == 1) {
+      int i;
+
       noInterrupts();
-      // insert writing routine here
-      digitalWrite(PB8, HIGH);
+      digitalWrite(adfLoadEN, HIGH);
       delay(50);
-      digitalWrite(PB8, LOW);
+      digitalWrite(adfLoadEN, LOW);
+      for (i = 31; i >= 0; i--) {
+        if ((cfgFrame & (unsigned long)(1UL << i)) >> i)
+          digitalWrite(adfCfgData, HIGH);
+        else
+          digitalWrite(adfCfgData, LOW);
+        delayMicroseconds(2);
+        digitalWrite(adfCfgClk, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(adfCfgClk, LOW);
+        delayMicroseconds(10);
+      }
     } else {
-      TXcfgClock->pause();
       interrupts();
-    }*/
+    }
   }
 }
 
-void errorHandler() {
+void errorHandler() {  //basic error handler
   okLEDtimer->setPWM(1, okLED, 15, 50);
   okLEDtimer->resume();
   while (true) {
-    if (err == "gps") {
+    if (err == 2) {
       extUART.write("ERR: No GNSS detected! Cannot continue!\n");
       delay(4000);
     }
-    if (err == "adfVCOLock"){
-      extUART.write("ERR: Could not lock VCO! Cannot continue!");
+    if (err == 3) {
+      extUART.write("ERR: Could not lock ADF7012 VCO! Cannot continue!");
       delay(4000);
     }
-    if (err == "adfPower"){
+    if (err == 4) {
       extUART.write("ERR: ADF7012 not powered! Cannot continue!");
       delay(4000);
     }

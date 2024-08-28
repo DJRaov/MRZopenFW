@@ -237,11 +237,11 @@ void initTX() {  //ADF7012B initialization routine
   bool adfFail = 0;
 
   //frequency calculation
-  unsigned long f_pfd = 16384000 / (outputDiv*2);
+  unsigned long f_pfd = 16384000 / (outputDiv * 2);
   NcountDivRatio = (unsigned int)(txFreq / f_pfd);
   float ratio = (float)txFreq / (float)f_pfd;
   float rest = ratio - (float)NcountDivRatio;
-  modDivRatio = (unsigned long)(rest*4096);
+  modDivRatio = (unsigned long)(rest * 4096);
 
   //check for ADF presence
   digitalWrite(adfLoadEN, HIGH);
@@ -329,7 +329,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
   muxOut = 0b101;  //analog lock detect
   int adfLocked = 0;
   delay(5);
-  unsigned long calcFreq = (16384000 / (outputDiv*2)) * ((float)NcountDivRatio + ((float)modDivRatio / 4096.0));
+  unsigned long calcFreq = (16384000 / (outputDiv * 2)) * ((float)NcountDivRatio + ((float)modDivRatio / 4096.0));
   extUART.print("Configuring ADF7012 VCO for ");
   extUART.print(calcFreq);
   extUART.println("Hz");
@@ -341,7 +341,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
       delay(150);
       long pllLockSum = 0;
       extUART.print("ADF7012 PLL Lock: ");
-      for (int i = 0; i < 100; i++) { //make sure we are ACTUALLY locked
+      for (int i = 0; i < 100; i++) {  //make sure we are ACTUALLY locked
         extUART.print(", ");
         int pllCurrent = analogRead(adfMuxOut);
         pllLockSum = pllLockSum + pllCurrent;
@@ -374,14 +374,18 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
 }
 
 void errorHandler() {  //basic error handler
-  okLEDtimer->setPWM(2, okLED, 15, 50);
-  okLEDtimer->resume();
   while (true) {
     if (err == 0) {
       extUART.println("Error handler called without an error present! Continuing...");
       delay(1000);
       break;
     }
+    int i;
+    okLEDtimer->pause();
+    delay(300);
+    okLEDtimer->setPWM(2, okLED, 3, 50);
+    okLEDtimer->resume();
+    
     if (err == 2) {
       extUART.println("ERR: No GNSS detected! Cannot continue!");
     }
@@ -394,6 +398,10 @@ void errorHandler() {  //basic error handler
     if (err == 5) {
       extUART.println("ERR: ADF7012 is not responding! Cannot continue!");
     }
-    delay(4000);
+
+    delay(int(333.3333333*err));
+    okLEDtimer->setPWM(2, okLED, 15, 50);
+    okLEDtimer->resume();
+    delay(2000);
   }
 }

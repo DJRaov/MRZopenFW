@@ -241,6 +241,7 @@ void initTX() {  //ADF7012B initialization routine
   NcountDivRatio = (unsigned int)(txFreq / f_pfd);
   float ratio = (float)txFreq / (float)f_pfd;
   float rest = ratio - (float)NcountDivRatio;
+  modDivRatio = (unsigned long)(rest*4096);
 
   //check for ADF presence
   digitalWrite(adfLoadEN, HIGH);

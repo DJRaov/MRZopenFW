@@ -14,7 +14,7 @@ PB0: Vbat SDADC Input
 PB3: GNSS UART TX
 PB4: GNSS UART RX
 PB8: ADF7012B ChipEnable
-PB9: ADF7012B LoadEnable(?)
+PB9: ADF7012B LoadEnable
 PC13: ADF7012B CFGCLK
 PC14: ADF7012B CFGDATA
 PE8: Sensor 1 SDADC (temp?)
@@ -41,26 +41,17 @@ HardwareSerial gpsUART(PB4, PB3);
 
 //================================ Variables =================================
 //ADF7012 reg0
-int fCountOffset = 0;      //F-Counter Offset [-1024 - 1023]
-byte rCountDivRatio = 15;  //RF R Counter Divide Ratio [1 - 15]
-bool xtalDoubler = 0;      //Crystal Doubler
-bool intXOSC = 0;          //Internal XOSC
+int fCountOffset = 0;  //F-Counter Offset [-1024 - 1023]
 
 //ADF7012 reg2
 byte modulation = 0;    //[FSK(0), GFSK(1), ASK(2), OOK(3)] (GFSK needs HW mod, refer to ADF7012B datasheet)
 bool gaussOOK = 0;      //Needs HW mod, refer to ADF7012B datasheet
-int paLevel = 32;       //[0 - 63]
-int modDev = 15;        //Refer to datasheet
+int paLevel = 5;       //[0 - 63]
+int modDev = 5;         //Refer to datasheet
 byte gfskModCtl = 0;    //[0 - 7] (GFSK only)
 byte indexCounter = 0;  //[16,32,64,128]
 
-//ADF7012 reg3
-bool PLLenable = 1;
-bool PAenable = 0;
-bool clkOutEnable = 0;
-bool dataInvert = 0;
-
-int txFreq = 403000000;  //UHF recommended due to output filter characteristics
+unsigned long txFreq = 403000000;  //UHF recommended due to output filter characteristics
 //=========================== Internal variables =============================
 //GNSS vars
 bool gpsAlive = 0;
@@ -77,9 +68,12 @@ float gpsCourse = 0;
 
 //ADF7012 vars
 //reg0
+byte rCountDivRatio = 2;  //keep at 2
+bool xtalDoubler = 0;
+bool crystalOSC = 0;      //keep disabled unless you want err3 to occur
 byte clkOutDivRatio = 8;  //[0 - 15, will be doubled later]
 byte vcoAdjust = 0;       //[0 - 4]
-int outputDiv = 1;        //[0 - 3, even only; set to 1 if freq <410MHz]
+int outputDiv = 0;        //[0 - 3, even only]
 
 //reg1
 int modDivRatio = 0;      //[0 - 4095]
@@ -87,7 +81,11 @@ byte NcountDivRatio = 0;  //[0 - 255]
 bool prescaler = 0;       //[4/5(0) or 8/9(1)]
 
 //reg3
-byte chargePumpI = 3;  //[0 - 3]
+bool PLLenable = 0;
+bool PAenable = 0;
+bool clkOutEnable = 0;
+bool dataInvert = 0;
+byte chargePumpI = 0;  //[0 - 3], large currents not needed
 bool bleedUp = 0;
 bool bleedDown = 0;
 bool vcoDisable = 0;
@@ -123,13 +121,6 @@ void setup() {
   extUART.begin(115200);
   gpsUART.begin(9600);
   delay(250);
-  //GNSS HS mode
-  MicroNMEA::sendSentence(gpsUART, "$PMTK101*30");
-  MicroNMEA::sendSentence(gpsUART, "$PMTK251,38400*27");
-  delay(100);
-  gpsUART.flush();
-  gpsUART.begin(38400);
-  MicroNMEA::sendSentence(gpsUART, "$PMTK101*30");  //hot reset Just in case(tm)
 
   //GNSS preamble check timer
   gnssFrameRead->attachInterrupt(parseGNSSframe);
@@ -146,14 +137,20 @@ void setup() {
   lockVCO();
   if (err == 0) {
     okLEDtimer->resume();
-    //gnssFrameRead->resume();
   }
 }
 void loop() {
 }
 
-void gnssCheck() {             //GNSS presence check routine
-  while (millis() <= 10000) {  //GNSS presence check
+void gnssCheck() {  //GNSS presence check routine
+  while (millis() <= 10000) {
+    bool gnssHS = 0;
+    if (millis() == 5000 && gpsAlive == 0) {
+      extUART.println("GNSS not found at 9600bd, trying 38400bd...");
+      gpsUART.flush();
+      gpsUART.begin(38400);
+      gnssHS = 1;
+    }
     if (millis() == 10000) {
       if (gpsAlive == 0) {
         err = 2;
@@ -165,10 +162,20 @@ void gnssCheck() {             //GNSS presence check routine
     }
     if (gpsAlive == 1) {
       extUART.write("GNSS found and responding! Sending init commands...\n");
+
+      //GNSS HS mode
+      if (gnssHS == 0) {
+        MicroNMEA::sendSentence(gpsUART, "$PMTK251,38400*27");
+        delay(100);
+        gpsUART.flush();
+        gpsUART.begin(38400);
+      }
+
+      MicroNMEA::sendSentence(gpsUART, "$PMTK101*30");  //hot reset Just in case(tm)
       MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1*37");
       delay(100);
       MicroNMEA::sendSentence(gpsUART, "$PMTK352,0*2B");
-      //MicroNMEA::sendSentence(gpsUART, ); //gonna be used later(tm)
+      gnssFrameRead->resume();
       break;
     }
   }
@@ -237,10 +244,11 @@ void initTX() {  //ADF7012B initialization routine
   bool adfFail = 0;
 
   //frequency calculation
-  unsigned long f_pfd = 16384000 / (outputDiv * 2);
-  NcountDivRatio = (unsigned int)(txFreq / f_pfd);
+  unsigned long f_pfd = 16384000 / rCountDivRatio;
   float ratio = (float)txFreq / (float)f_pfd;
   float rest = ratio - (float)NcountDivRatio;
+
+  NcountDivRatio = (unsigned int)(txFreq / f_pfd);
   modDivRatio = (unsigned long)(rest * 4096);
 
   //check for ADF presence
@@ -275,7 +283,7 @@ void sendADFregister(int regNum) {
   unsigned long frame = 0;
 
   cfgFrameR0 =
-    (0) | ((unsigned long)(fCountOffset & 0x7FF) << 2) | ((unsigned long)(rCountDivRatio & 0xF) << 13) | ((unsigned long)(xtalDoubler & 0x1) << 17) | ((unsigned long)(!intXOSC & 0x1) << 18) | ((unsigned long)(clkOutDivRatio & 0xF) << 19) | ((unsigned long)(vcoAdjust & 0x3) << 23) | ((unsigned long)(outputDiv & 0x3) << 25);
+    (0) | ((unsigned long)(fCountOffset & 0x7FF) << 2) | ((unsigned long)(rCountDivRatio & 0xF) << 13) | ((unsigned long)(xtalDoubler & 0x1) << 17) | ((unsigned long)(!crystalOSC & 0x1) << 18) | ((unsigned long)(clkOutDivRatio & 0xF) << 19) | ((unsigned long)(vcoAdjust & 0x3) << 23) | ((unsigned long)(outputDiv & 0x3) << 25);
   cfgFrameR1 =
     (1) | ((unsigned long)(modDivRatio & 0xFFF) << 2) | ((unsigned long)(NcountDivRatio & 0xFF) << 14) | ((unsigned long)(prescaler & 0x1) << 22);
   cfgFrameR2 =
@@ -305,20 +313,36 @@ void sendADFregister(int regNum) {
       frame = cfgFrameR3;
       break;
   }
-
-  for (i = 31; i >= 0; i--) {
-    if ((frame & (unsigned long)(1UL << i)) >> i) {
-      digitalWrite(adfCfgData, HIGH);
-      extUART.print("1");
-    } else {
-      digitalWrite(adfCfgData, LOW);
-      extUART.print("0");
+  if (regNum == 1) {
+    for (i = 23; i >= 0; i--) {
+      if ((frame & (unsigned long)(1UL << i)) >> i) {
+        digitalWrite(adfCfgData, HIGH);
+        extUART.print("1");
+      } else {
+        digitalWrite(adfCfgData, LOW);
+        extUART.print("0");
+      }
+      delayMicroseconds(10);
+      digitalWrite(adfCfgClk, HIGH);
+      delayMicroseconds(1);
+      digitalWrite(adfCfgClk, LOW);
+      delayMicroseconds(1);
     }
-    delayMicroseconds(10);
-    digitalWrite(adfCfgClk, HIGH);
-    delayMicroseconds(1);
-    digitalWrite(adfCfgClk, LOW);
-    delayMicroseconds(1);
+  } else {
+    for (i = 31; i >= 0; i--) {
+      if ((frame & (unsigned long)(1UL << i)) >> i) {
+        digitalWrite(adfCfgData, HIGH);
+        extUART.print("1");
+      } else {
+        digitalWrite(adfCfgData, LOW);
+        extUART.print("0");
+      }
+      delayMicroseconds(10);
+      digitalWrite(adfCfgClk, HIGH);
+      delayMicroseconds(1);
+      digitalWrite(adfCfgClk, LOW);
+      delayMicroseconds(1);
+    }
   }
   delay(5);
   digitalWrite(adfLoadEN, HIGH);
@@ -329,8 +353,9 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
   muxOut = 0b101;  //analog lock detect
   int adfLocked = 0;
   delay(5);
-  unsigned long calcFreq = (16384000 / (outputDiv * 2)) * ((float)NcountDivRatio + ((float)modDivRatio / 4096.0));
-  extUART.print("Configuring ADF7012 VCO for ");
+  PLLenable = 1;
+  unsigned long calcFreq = (16384000 / rCountDivRatio) * ((float)NcountDivRatio + ((float)modDivRatio / 4096.0));
+  extUART.print("Locking ADF7012 VCO for ");
   extUART.print(calcFreq);
   extUART.println("Hz");
 
@@ -341,7 +366,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
       delay(150);
       long pllLockSum = 0;
       extUART.print("ADF7012 PLL Lock: ");
-      for (int i = 0; i < 100; i++) {  //make sure we are ACTUALLY locked
+      for (int i = 0; i < 100; i++) {  //make sure we are ACTUALLY locked in
         extUART.print(", ");
         int pllCurrent = analogRead(adfMuxOut);
         pllLockSum = pllLockSum + pllCurrent;
@@ -354,7 +379,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
 
       if (pllLockSum / 100 > 850) {
         adfLocked = 1;
-        extUART.println("ADF LOCKED!");
+        extUART.println("ADF VCO LOCKED!");
         PAenable = 1;
         sendADFregister(3);
         break;
@@ -366,7 +391,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
       }
     }
     if (adfLocked == 1) {
-      extUART.print("ADF7012 VCO Lock: ");
+      extUART.print("Current ADF7012 VCO Lock: ");
       extUART.println(analogRead(adfMuxOut));
       break;
     }
@@ -385,7 +410,7 @@ void errorHandler() {  //basic error handler
     delay(300);
     okLEDtimer->setPWM(2, okLED, 3, 50);
     okLEDtimer->resume();
-    
+
     if (err == 2) {
       extUART.println("ERR: No GNSS detected! Cannot continue!");
     }
@@ -399,7 +424,7 @@ void errorHandler() {  //basic error handler
       extUART.println("ERR: ADF7012 is not responding! Cannot continue!");
     }
 
-    delay(int(333.3333333*err));
+    delay(int(333.3333333 * err));
     okLEDtimer->setPWM(2, okLED, 15, 50);
     okLEDtimer->resume();
     delay(2000);

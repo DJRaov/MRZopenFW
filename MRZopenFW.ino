@@ -334,8 +334,8 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
   extUART.print(calcFreq);
   extUART.println("Hz");
 
-  for (vcoBiasI = 0U; vcoBiasI <= 15; vcoBiasI++) {
-    for (vcoAdjust = 0; vcoAdjust <= 4; vcoAdjust++) {
+  for (vcoAdjust = 0; vcoAdjust <= 4; vcoAdjust++) {
+    for (vcoBiasI = 1; vcoBiasI <= 15; vcoBiasI++) {
       sendADFregister(0);
       sendADFregister(3);
       delay(150);

@@ -1,2 +1,6 @@
-.vscode
-.theia/settings.json
+.cproject
+.mxproject
+.project
+.settings/
+mrz-fw.ioc
+Debug/

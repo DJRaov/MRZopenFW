@@ -72,7 +72,7 @@ unsigned long txFreq = 404500000;  //UHF recommended due to output filter charac
 //ADF7012 vars
 //reg0
 uint8_t rCountDivRatio = 4;  //values over 12 seem to upset the VCO
-bool xtalDoubler = 0;        //doubles XO, but who needs that?
+bool xtalDoubler = 0;        //doubles XO, not needed
 bool crystalOSC = 0;         //keep disabled unless you want err3 to occur
 uint8_t clkOutDivRatio = 8;  //[0 - 15, unused]
 uint8_t vcoAdjust = 0;       //[0 - 4]
@@ -279,7 +279,7 @@ void sendADFregister(int regNum) {
   digitalWrite(adfLoadEN, HIGH);
 }
 void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
-  muxOut = 0b101;  //analog lock detect
+  muxOut = 0b101;  //set analog lock detect
   bool adfLocked = 0;
   PLLenable = 1;
 
@@ -479,7 +479,7 @@ void errorHandler(uint8_t err) {  //basic error handler
         break;
 
       case 7:
-        extUART.println("ERR: One of SDADCs failed to calibrate within specified time frame. Cannot continue.");
+        extUART.println("ERR: One of the SDADCs failed to calibrate within specified time frame. Cannot continue.");
         break;
 
       default:

@@ -14,8 +14,10 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 
 ## Supported sondes
 - MRZ-N1 (SIM68)
+
 NOTE: Last supported serial is ~406000 (manufactured around mid-2024) - newer sondes have an incompatible Artery MCU
 - MRZ-N1 (U-Blox)
+
 NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested, SIM68-specific cmds may cause unexpected behavior
 
 ## Dependencies

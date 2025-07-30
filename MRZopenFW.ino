@@ -434,7 +434,7 @@ float convertTemperature(int16_t rawSDADC) {
     const float ADC_MAX = 32767.0;
     
     uint32_t rawU = (int32_t)rawSDADC;
-    float adc_t = rawU / 3.5f;  //winged it, should become more accurate soon(tm)
+    float adc_t = rawU / 3.0f;  //winged it, should become more accurate soon(tm)
 
     float poly1 = adc_t * adc_t * A_adcT + adc_t * B_adcT + C_adcT;
     float Rt = 100000.0f * poly1 / (ADC_MAX - poly1);

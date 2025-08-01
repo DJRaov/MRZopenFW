@@ -43,8 +43,8 @@ PE9: Humidity SDADC (linearized, thankfully)
 #define hmdSDADC PE_9
 
 //================================ Variables =================================
-#define debug
-//#define debugGNSS
+//#define debug
+#define debugGNSS
 
 #define stockBoom
 //#define bmp280
@@ -393,7 +393,7 @@ void parseGNSSframe() {  //GNSS frame parser
         gpsAlt = -1;
       }
       #ifdef debugGNSS
-      extUART.println("MSGID: " + String(nmea.getMessageID()) + " | " + String(nmea.getNumSatellites()) + " sats | " + String(nmea.getHour()) + ":" + String(nmea.getMinute()) + ":" + String(nmea.getSecond()) + " | " + String(float(nmea.getLatitude() / 1000000), 4) + "," + String(float(nmea.getLongitude() / 1000000), 4) + " " + String(gpsAlt) + "m | " + String(nmea.getSpeed() / 1000, 2) + "km/h | " + String(gpsCourse) + "* | " + nmea.getSentence());
+      extUART.println("MSGID: " + String(nmea.getMessageID()) + " | " + String(nmea.getNumSatellites()) + " sats | " + String(nmea.getHour()) + ":" + String(nmea.getMinute()) + ":" + String(nmea.getSecond()) + " | " + String(float(nmea.getLatitude() / 1000000), 4) + "," + String(float(nmea.getLongitude() / 1000000), 4) + " " + String(gpsAlt) + "m | " + String(nmea.getSpeed() / 1000, 2) + "km/h | " + nmea.getSentence());
       #endif
     }
   }

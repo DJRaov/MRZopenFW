@@ -1,5 +1,18 @@
-//MRZ-N1-SIM68 openFW v0.069 Alpha
-//by Raov 2025
+/*
+ * MRZopenFW v.0.069a
+ * Copyright (C) 2025 Raov
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program incorporates:
+ * - MicroNMEA library by Steve Marple (LGPL 2.1)
+ * - Project Horus FEC library (GPL 3.0)
+ * 
+ * See LICENSE files for complete terms.
+ */
 
 /*
 STM32F373 pinout:
@@ -25,7 +38,8 @@ PE9: Humidity SDADC (linearized, thankfully)
 #include <Math.h>
 #include <HardwareSerial.h>
 #include <HardwareTimer.h>
-#include <MicroNMEA.h>
+#include "src/micronmea/MicroNMEA.h"
+#include "src/horusv2/horus_l2.h"
 
 #include <stm32f3xx.h>
 #include <stm32f3xx_hal.h>
@@ -43,17 +57,21 @@ PE9: Humidity SDADC (linearized, thankfully)
 #define hmdSDADC PE_9
 
 //================================ Variables =================================
-//#define debug
+#define debugHorus
+//#define debugSensors
 #define debugGNSS
 
 #define stockBoom
 //#define bmp280
 
+//Your Horus-assigned ID
+uint16_t payloadID = 0; //0=Test
+
 //ADF7012 reg0
 int fCountOffset = 0;  //F-Counter Offset [-1024 - 1023]
 
 //ADF7012 reg2
-byte modulation = 0;    //[FSK(0), GFSK(1), ASK(2), OOK(3)] (GFSK needs HW mod, refer to mods/readme)
+byte modulation = 4;    //[FSK(0), GFSK(1), ASK(2), OOK(3), 4FSK/HorusV2(4)] (GFSK needs HW mod, refer to mods/readme)
 bool gaussOOK = 0;      //Needs HW mod, refer to mods/readme
 byte paLevel = 3;       //[0 - 63]
 int modDev = 3;         //[0 - 511] (500hz/step with rCountDivRatio=2; Divider factor [0-127] if GFSK selected)
@@ -66,6 +84,7 @@ float ADCb = 0;
 float ADCc = 0;
 
 unsigned long txFreq = 404500000;  //UHF recommended due to output filter characteristics
+
 //============================================================================
 //=========================== Internal variables =============================
 
@@ -101,6 +120,28 @@ uint8_t paBias = 4;    //[0 - 7]
 float temp = 0;
 float hmd = 0;
 float Vbat = 0;
+
+struct __attribute__((packed)) TelemetryFrame { //Horus telemetry frame structure
+  uint16_t payloadID;
+  uint16_t seqNum;
+  uint8_t hour;
+  uint8_t min;
+  uint8_t sec;
+  float lat;
+  float lon;
+  uint16_t alt;
+  uint8_t spd;
+  uint8_t satCount;
+  int8_t temp;
+  uint8_t vbat; //vbat*50
+  uint8_t humid;
+  uint64_t custom1234;
+  uint16_t crc;
+};
+
+uint8_t rawBuffer[sizeof(TelemetryFrame)];        // Raw telemetry data
+uint8_t codedBuffer[sizeof(TelemetryFrame)*2];    // FEC-encoded output buffer
+uint16_t encodedLength;                           // encoded frame length
 //============================================================================
 
 
@@ -111,8 +152,10 @@ HardwareTimer *bitTXtimer = new HardwareTimer(TIM7);
 HardwareSerial extUART(PA10, PA9);
 HardwareSerial gpsUART(PB4, PB3);
 
- SDADC_HandleTypeDef hsdadc1;
- SDADC_HandleTypeDef hsdadc2;
+SDADC_HandleTypeDef hsdadc1;
+SDADC_HandleTypeDef hsdadc2;
+
+TelemetryFrame tlmFrame;
 
 //NMEA Parser setup
 char gnssFrameBuffer[85];
@@ -135,7 +178,14 @@ void setup() {
 
   //Telemetry bit transmit interrupt (Reading the GNSS frame seems to be blocking, woulda done it in loop() otherwise)
   bitTXtimer->setOverflow(300, HERTZ_FORMAT);
-  bitTXtimer->attachInterrupt(txNextTlmBit);
+  if (modulation == 4) {
+    rCountDivRatio = 8;
+    bitTXtimer->setOverflow(100, HERTZ_FORMAT);
+    bitTXtimer->attachInterrupt(txNext4FSKSymbol);
+  }
+  else {
+    bitTXtimer->attachInterrupt(txNextTlmBit);
+  }
 
   //Data (temp+humid) update timer
   dataUpdate->setOverflow(1, HERTZ_FORMAT);
@@ -311,7 +361,7 @@ void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
   }
 }
 
-void txNextTlmBit() {
+void txNextTlmBit() { //TODO: rework, start using structs
   static byte frameCnt;
   static byte i;
   static byte partCount;
@@ -373,6 +423,108 @@ void txNextTlmBit() {
   }
 }
 
+//Horus v2 stuff
+uint16_t bitIndex = 0;
+void updateHorusFrame() {
+  #ifdef debugHorus
+  uint32_t startTime = micros();
+  #endif
+  static uint16_t frameCounter;
+  long alt;
+  long gpsAlt;
+  tlmFrame.payloadID = payloadID;
+  tlmFrame.seqNum = frameCounter;
+  tlmFrame.hour = nmea.getHour();
+  tlmFrame.min = nmea.getMinute();
+  tlmFrame.sec = nmea.getSecond();
+  tlmFrame.lat = nmea.getLatitude();
+  tlmFrame.lon = nmea.getLongitude();
+  if (nmea.getAltitude(alt)) {
+    gpsAlt = alt / 1000;
+  } else {
+    gpsAlt = -1;
+  }
+  tlmFrame.alt = gpsAlt;
+  tlmFrame.satCount = nmea.getNumSatellites();
+  tlmFrame.temp = int8_t(temp);
+  tlmFrame.humid = uint8_t(hmd);
+  tlmFrame.vbat = Vbat*50;
+  tlmFrame.custom1234 = 0x0; //empty
+  tlmFrame.crc = crc16_ccitt((uint8_t*)&tlmFrame, sizeof(TelemetryFrame) - sizeof(uint16_t));
+  frameCounter++;
+  memcpy(rawBuffer, &tlmFrame, sizeof(TelemetryFrame));
+  encodedLength = horus_l2_encode_tx_packet(codedBuffer, rawBuffer, sizeof(TelemetryFrame));
+
+  #ifdef debugHorus
+  extUART.println("Raw length: " + String(sizeof(TelemetryFrame)));
+  extUART.println("Encoded length: " + String(encodedLength));
+  extUART.print("Frame: ");
+  printStructHex(&codedBuffer, sizeof(codedBuffer), extUART);
+  uint32_t duration = micros() - startTime;
+  if (duration > 100) {  // More than 100µs is concerning
+      extUART.println("ISR duration: " + String(duration) + "µs");
+  }
+  #endif
+}
+void txNext4FSKSymbol() { //hacky, but works surprisingly well
+  // Symbol to modDev and outputBit lookup tables
+  const uint8_t symbolModDev[4] = {3, 1, 1, 3};      // 00->3, 01->1, 10->1, 11->3
+  const uint8_t symbolOutputBit[4] = {0, 0, 1, 1};   // 00->0, 01->0, 10->1, 11->1
+  uint16_t totalBits = encodedLength * 8;
+  if (bitIndex >= totalBits) {
+    bitIndex = 0;
+    updateHorusFrame();
+    return;
+  }
+  
+  // Extract next 2 bits from encoded buffer (MSB first)
+  uint8_t symbol = 0;
+  for (int i = 0; i < 2; i++) {
+    if (bitIndex < totalBits) {
+      uint16_t byteIndex = bitIndex / 8;
+      uint8_t bitInByte = 7 - (bitIndex % 8);
+      uint8_t bit = (codedBuffer[byteIndex] >> bitInByte) & 0x01;
+      symbol |= (bit << (1 - i));  // Build 2-bit symbol
+      bitIndex++;
+    }
+  }
+  
+  // Get modDev and outputBit for this symbol
+  uint8_t modDevSteps = symbolModDev[symbol];
+  uint8_t outputBit = symbolOutputBit[symbol];
+
+  modDev = modDevSteps;
+  sendADFregister(2);
+  digitalWrite(adfTXdata, outputBit ? HIGH : LOW);
+}
+uint16_t crc16_ccitt(const uint8_t *data, size_t length) {
+    uint16_t crc = 0xFFFF;  // Initial value for CCITT
+    
+    for (size_t i = 0; i < length; i++) {
+        crc ^= (uint16_t)data[i] << 8;
+        
+        for (int bit = 0; bit < 8; bit++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;  // CCITT polynomial
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    
+    return crc;
+}
+#ifdef debugHorus
+void printStructHex(const void* ptr, size_t len, HardwareSerial& serial) {
+  const uint8_t* bytes = (const uint8_t*)ptr;
+  for (size_t i = 0; i < len; i++) {
+    if (bytes[i] < 0x10) serial.print('0');  // leading zero for single-digit
+    serial.print(bytes[i], HEX);
+  }
+  serial.println();
+}
+#endif
+
 void parseGNSSframe() {  //GNSS frame parser
   while (gpsUART.available()) {
     char c = gpsUART.read();
@@ -412,7 +564,7 @@ void fetchADC() {
   temp = convertTemperature(rawTemp); //very not metrology-grade, beware
   hmd = 112.5*(((float(rawHumid)/32767.0f)*3.3f)/3.3);
   Vbat = (rawVbat * 1.6117216117) / 1000;
-  #ifdef debug
+  #ifdef debugSensors
   extUART.println("tempADC raw: " + String(rawTemp32) + " | Temperature: " + String(temp) + "c");
   extUART.println("humidADC raw: " + String(rawHumid) + " | Humidity: " + String(hmd) + "%");
   extUART.println("Vbat raw: " + String(rawVbat) + " | Battery voltage: " + String(Vbat) + "v");
@@ -632,7 +784,7 @@ void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle){
   }
 }
 
-void SystemClock_Config(){
+void SystemClock_Config() {
   RCC_OscInitTypeDef RCC_OscInitStruct = {};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {};
@@ -644,7 +796,9 @@ void SystemClock_Config(){
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -654,12 +808,12 @@ void SystemClock_Config(){
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV8;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV8;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -667,7 +821,7 @@ void SystemClock_Config(){
                               |RCC_PERIPHCLK_ADC1|RCC_PERIPHCLK_SDADC;
   PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_HSI;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_HSI;
-  PeriphClkInit.SdadcClockSelection = RCC_SDADCSYSCLK_DIV8;
+  PeriphClkInit.SdadcClockSelection = RCC_SDADCSYSCLK_DIV32;
   PeriphClkInit.Adc1ClockSelection = RCC_ADC1PCLK2_DIV2;
 
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)

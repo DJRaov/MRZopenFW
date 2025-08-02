@@ -1,15 +1,16 @@
 # MRZopenFW
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Version](https://img.shields.io/badge/Version-0.069a-orange.svg)](https://github.com/DJRaov/MRZopenFW)
 [![Platform](https://img.shields.io/badge/Platform-STM32F373-green.svg)](https://www.st.com/en/microcontrollers-microprocessors/stm32f373.html)
 
 An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 
 ## Features
 
-- **GNSS cross-interoperbility**: Works with both U-Blox and SIM68 revision sondes
-- **Multiple Modulation Modes**: FSK, GFSK, ASK, and OOK support
-- **Multiple protocol support**: Supports APRS (soon) and Horus v2 (soon), alongside a custom protocol
+- **GNSS Cross-Compatibility**: Works with both U-Blox and SIM68 revision sondes
+- **Standard Telemetry Protocols**: Horus v2 (default), APRS and UKHAS support
+- **Protocol-Driven Modulation**: Automatic modulation selection based on chosen protocol
 - **Debug Interface**: UART-based debugging and monitoring capabilities
 
 ## Supported sondes
@@ -22,25 +23,54 @@ NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested
 
 ## Dependencies
 - STM32duino core
-- [MicroNMEA](https://github.com/stevemarple/MicroNMEA)
+
+**Included Libraries** (in `src/` directory):
+- MicroNMEA library (LGPL 2.1) - NMEA parsing
+- Project Horus FEC library (GPL 3.0) - Forward error correction for Horus v2
 
 ## Configuration
 
+### Protocol Selection (Future)
+Protocol selection will be done via compile-time defines:
+```cpp
+// #define PROTOCOL_HORUS_V2  // Default - currently implemented
+// #define PROTOCOL_APRS      // Planned
+// #define PROTOCOL_UKHAS     // Planned
+```
+
 ### Key Parameters
 - **Transmission Frequency**: Default 404.5MHz (stock works between 400-420MHz)
-- **Modulation**: FSK/GFSK/ASK/OOK selectable (NOTE: GFSK requires a HW mod - refer to `mods/readme`)
+- **Horus v2 Payload ID**: Set your assigned payload ID
+  ```cpp
+  uint16_t payloadID = 0; // 0=Test, use your assigned ID for flights
+  ```
 
 ### Debug Options
 Enable debug output by uncommenting:
 ```cpp
-#define debug        // General debug information
-#define debugGNSS    // GNSS-specific debug output
+#define debugHorus      // Horus v2 protocol debug information
+#define debugSensors    // Sensor reading debug output
+#define debugGNSS       // GNSS-specific debug output
 ```
+
+## Telemetry Protocols
+
+### Horus v2 (Default)
+- **Modulation**: 4FSK with forward error correction
+- **Baud Rate**: 100 symbols/second
+- **Configuration**: Set your payload ID in the firmware
+
+### APRS (Planned)
+- Standard APRS packet format
+- Compatible with existing APRS infrastructure
+
+### UKHAS (Planned)
+- ASCII telemetry format
+- Compatible with UKHAS tracking systems
 
 ## Hardware Modifications
 
 Some advanced features may require hardware modifications. Refer to the `mods/` directory for:
-- GFSK modulation hardware modifications (soon)
 - Additional sensor integration guides (soon)
 
 ## Contributing
@@ -57,8 +87,12 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Credits
 
+**Author**: Raov (2025)
+
 **Acknowledgments**:
-- MicroNMEA library contributors
+- Project Horus team (David Rowe) for the FEC library and protocol specification
+- Steve Marple for the MicroNMEA library
+- STM32duino community for platform support
 
 ## Disclaimer
 

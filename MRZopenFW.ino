@@ -8,7 +8,6 @@
  * (at your option) any later version.
  *
  * This program incorporates:
- * - MicroNMEA library by Steve Marple (LGPL 2.1)
  * - Project Horus FEC library (GPL 3.0)
  * 
  * See LICENSE files for complete terms.
@@ -38,7 +37,7 @@ PE9: Humidity SDADC (linearized, thankfully)
 #include <Math.h>
 #include <HardwareSerial.h>
 #include <HardwareTimer.h>
-#include "src/micronmea/MicroNMEA.h"
+#include <MicroNMEA.h>
 #include "src/horusv2/horus_l2.h"
 
 #include <stm32f3xx.h>
@@ -437,8 +436,8 @@ void updateHorusFrame() {
   tlmFrame.hour = nmea.getHour();
   tlmFrame.min = nmea.getMinute();
   tlmFrame.sec = nmea.getSecond();
-  tlmFrame.lat = nmea.getLatitude();
-  tlmFrame.lon = nmea.getLongitude();
+  tlmFrame.lat = nmea.getLatitude()/1000000.0f;
+  tlmFrame.lon = nmea.getLongitude()/1000000.0f;
   if (nmea.getAltitude(alt)) {
     gpsAlt = alt / 1000;
   } else {

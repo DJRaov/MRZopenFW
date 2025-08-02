@@ -23,9 +23,9 @@ NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested
 
 ## Dependencies
 - STM32duino core
+- [MicroNMEA library](https://github.com/stevemarple/MicroNMEA)
 
 **Included Libraries** (in `src/` directory):
-- MicroNMEA library (LGPL 2.1) - NMEA parsing
 - Project Horus FEC library (GPL 3.0) - Forward error correction for Horus v2
 
 ## Configuration

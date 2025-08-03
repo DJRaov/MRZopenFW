@@ -82,7 +82,7 @@ float ADCa = 0;
 float ADCb = 0;
 float ADCc = 0;
 
-unsigned long txFreq = 404500000;  //UHF recommended due to output filter characteristics
+unsigned long txFreq = 437600000;  //UHF recommended due to output filter characteristics
 
 //============================================================================
 //=========================== Internal variables =============================
@@ -133,8 +133,8 @@ struct __attribute__((packed)) TelemetryFrame { //Horus telemetry frame structur
   uint8_t satCount;
   int8_t temp;
   uint8_t vbat; //vbat*50
-  uint8_t humid;
-  uint64_t custom1234;
+  uint8_t custom1;
+  uint64_t custom2;
   uint16_t crc;
 };
 
@@ -446,9 +446,9 @@ void updateHorusFrame() {
   tlmFrame.alt = gpsAlt;
   tlmFrame.satCount = nmea.getNumSatellites();
   tlmFrame.temp = int8_t(temp);
-  tlmFrame.humid = uint8_t(hmd);
   tlmFrame.vbat = Vbat*50;
-  tlmFrame.custom1234 = 0x0; //empty
+  tlmFrame.custom1 = 0x00; //empty
+  tlmFrame.custom2 = 0x0699B5218A471E01; //placeholder, replace as you wish
   tlmFrame.crc = crc16_ccitt((uint8_t*)&tlmFrame, sizeof(TelemetryFrame) - sizeof(uint16_t));
   frameCounter++;
   memcpy(rawBuffer, &tlmFrame, sizeof(TelemetryFrame));
@@ -460,7 +460,7 @@ void updateHorusFrame() {
   extUART.print("Frame: ");
   printStructHex(&codedBuffer, sizeof(codedBuffer), extUART);
   uint32_t duration = micros() - startTime;
-  if (duration > 100) {  // More than 100µs is concerning
+  if (duration > 100) {
       extUART.println("ISR duration: " + String(duration) + "µs");
   }
   #endif
@@ -570,7 +570,6 @@ void fetchADC() {
   #endif
 
 }
-
 float convertTemperature(int16_t rawSDADC) {
     //NTC coeffs
     const float calA = 0.01563;      //NTC A

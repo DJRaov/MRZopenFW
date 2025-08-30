@@ -6,14 +6,26 @@
 
 An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 
-## Features
+## Firmware features
+- (almost) **Full Cross-Compatibility**: Works with (almost) all revisions of the MRZ-N1 (except revision v4, code rebase coming soon[tm])
+- **Wide TX protocol support**
+  * [Horus Binary v2 (4FSK)](https://github.com/projecthorus/horusdemodlib/wiki)
+    * Very low SNR requirements, allows for 9 bytes of custom data
+    * Multi-QRG operation supported (soon)
+    * NOTE: uses 250hz shift due to HW constraints
+  * APRS (soon)
+    * Standard AFSK@1200bd modulation, timer-switched
+    * add text here
+  * RTTY (soon)
+    * UKHAS-compliant formatting, 7N2 (configurable)
+    * Customizable baud rates
+    * Tone spacing quantizable down to 125hz (250hz default)
+  * Morse code/CW
+    * Customizable WPM
+    * UKHAS-compliant formatting
+- **Pre-flight check** via onboard UART
 
-- **GNSS Cross-Compatibility**: Works with both U-Blox and SIM68 revision sondes
-- **Standard Telemetry Protocols**: Horus v2 (default), APRS and UKHAS support
-- **Protocol-Driven Modulation**: Automatic modulation selection based on chosen protocol
-- **Debug Interface**: UART-based debugging and monitoring capabilities
-
-## Supported sondes
+## Supported sonde revisions
 - MRZ-N1 (SIM68)
 
 NOTE: Last supported serial is ~406000 (manufactured around mid-2024) - newer sondes have an incompatible Artery MCU
@@ -33,45 +45,27 @@ NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested
 ### Protocol Selection (Future)
 Protocol selection will be done via compile-time defines:
 ```cpp
-// #define PROTOCOL_HORUS_V2  // Default - currently implemented
-// #define PROTOCOL_APRS      // Planned
-// #define PROTOCOL_UKHAS     // Planned
+// #define modHorus     // Default - currently implemented
+// #define modAPRS      // Planned
+// #define modRTTY      // Planned
 ```
-
-### Key Parameters
-- **Transmission Frequency**: Default 404.5MHz (stock works between 400-420MHz)
-- **Horus v2 Payload ID**: Set your assigned payload ID
-  ```cpp
-  uint16_t payloadID = 0; // 0=Test, use your assigned ID for flights
-  ```
 
 ### Debug Options
 Enable debug output by uncommenting:
 ```cpp
+#define debug           // Verbose startup and status messages
 #define debugHorus      // Horus v2 protocol debug information
 #define debugSensors    // Sensor reading debug output
 #define debugGNSS       // GNSS-specific debug output
 ```
 
-## Telemetry Protocols
-
-### Horus v2 (Default)
-- **Modulation**: 4FSK with forward error correction
-- **Baud Rate**: 100 symbols/second
-- **Configuration**: Set your payload ID in the firmware
-
-### APRS (Planned)
-- Standard APRS packet format
-- Compatible with existing APRS infrastructure
-
-### UKHAS (Planned)
-- ASCII telemetry format
-- Compatible with UKHAS tracking systems
-
 ## Hardware Modifications
 
-Some advanced features may require hardware modifications. Refer to the `mods/` directory for:
+Some more advanced features require hardware modifications. Refer to the `mods/` directory for:
 - Additional sensor integration guides (soon)
+- Adding GFSK support
+- Wiring up PPS
+- Wiring up non-stock sensors
 
 ## Contributing
 

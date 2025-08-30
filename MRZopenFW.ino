@@ -37,6 +37,8 @@ PE9: Humidity SDADC (linearized, thankfully)
 #include <Math.h>
 #include <HardwareSerial.h>
 #include <HardwareTimer.h>
+#include <STM32LowPower.h>
+#include <low_power.h>
 #include <MicroNMEA.h>
 #include "src/horusv2/horus_l2.h"
 
@@ -56,9 +58,14 @@ PE9: Humidity SDADC (linearized, thankfully)
 #define hmdSDADC PE_9
 
 //================================ Variables =================================
-#define debugHorus
+#define debug
+//#define debugHorus
 //#define debugSensors
 #define debugGNSS
+
+#define modHorus
+#define modAPRS
+#define modRTTY
 
 #define stockBoom
 //#define bmp280
@@ -82,7 +89,7 @@ float ADCa = 0;
 float ADCb = 0;
 float ADCc = 0;
 
-unsigned long txFreq = 437600000;  //UHF recommended due to output filter characteristics
+uint32_t txFreq = 437600000;  //UHF recommended due to output filter characteristics
 
 //============================================================================
 //=========================== Internal variables =============================
@@ -157,7 +164,7 @@ SDADC_HandleTypeDef hsdadc2;
 TelemetryFrame tlmFrame;
 
 //NMEA Parser setup
-char gnssFrameBuffer[85];
+char gnssFrameBuffer[255];
 MicroNMEA nmea(gnssFrameBuffer, sizeof(gnssFrameBuffer));
 
 void setup() {
@@ -173,8 +180,10 @@ void setup() {
   digitalWrite(adfChipEN, LOW);
   extUART.begin(115200);
   gpsUART.begin(9600);
-  HAL_Delay(150);  //wait for the gnss to launch
 
+  #ifdef debug
+  extUART.print("MRZopenFW ver.whatever\n\n");
+  #endif
   //Telemetry bit transmit interrupt (Reading the GNSS frame seems to be blocking, woulda done it in loop() otherwise)
   bitTXtimer->setOverflow(300, HERTZ_FORMAT);
   if (modulation == 4) {
@@ -199,47 +208,80 @@ void setup() {
   initTX();
   initSDADC();
   lockVCO();
+  #ifdef modHorus
+  updateHorusFrame();
+  #endif
   okLEDtimer->resume();
   bitTXtimer->resume();
   dataUpdate->resume();
 }
-void loop() {  //empty for now, will have IWDG refresh later(tm)
-  parseGNSSframe();
-}
 
-void gnssCheck() {  //GNSS presence check routine
-  bool gpsAlive = 0;
-  while (HAL_GetTick() <= 3000) {
-    if (HAL_GetTick() == 3000) {
-      if (gpsAlive == 0) {
+void gnssCheck() { //GNSS presence check
+    bool gpsAlive = 0;
+    bool warmGNSS = 0;
+    uint32_t startTime = HAL_GetTick();
+    uint32_t warmBootTime = startTime + 3000;
+    uint32_t timeoutTime = startTime + 6000;
+    
+    while (HAL_GetTick() < timeoutTime && !gpsAlive) {
+        if (HAL_GetTick() >= warmBootTime && !warmGNSS) {
+            #ifdef debug
+            extUART.println("GNSS not found at 9600 baud. Warm boot? Trying 115200 baud...");
+            #endif
+            gpsUART.end();
+            HAL_Delay(100);
+            gpsUART.begin(115200);
+            warmGNSS = 1;
+        }
+        if (gpsUART.available()) {
+            if (gpsUART.read() == 0x24) {
+                gpsAlive = 1;
+                #ifdef debug
+                if (!warmGNSS) {
+                    extUART.println("Cold GNSS found. Sending init commands...");
+                } else {
+                    extUART.println("Hot GNSS found. Skipping init.");
+                }
+                #endif
+                
+                if (!warmGNSS) {
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK301,2");
+                    HAL_Delay(50);
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK313,1");
+                    HAL_Delay(50);
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK352,0");
+                    HAL_Delay(50);
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1,1,0,0");
+                    HAL_Delay(50);
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK314,0,1,0,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"); // Both at 1Hz
+                    HAL_Delay(50);
+                    MicroNMEA::sendSentence(gpsUART, "$PMTK251,115200");
+                    gpsUART.flush();
+                    HAL_Delay(100);
+                    gpsUART.end();
+                    HAL_Delay(500);
+                    gpsUART.begin(115200);
+                }
+                break;
+            }
+        }
+        
+        HAL_Delay(10); // Small delay to prevent tight polling
+    }
+    
+    if (!gpsAlive) {
         errorHandler(2);
-      }
     }
-    if (char(gpsUART.read()) == 0x24) {
-      gpsAlive = 1;
-      #ifdef debug
-      extUART.write("GNSS found. Sending init commands...\n");
-      #endif
-      MicroNMEA::sendSentence(gpsUART, "$PMTK101");  //hot reset Just in case(tm)
-      //delay(50);
-      MicroNMEA::sendSentence(gpsUART, "$PMTK353,1,1");
-      //delay(50);
-      MicroNMEA::sendSentence(gpsUART, "$PMTK352,0");
-      //delay(50);
-      //MicroNMEA::sendSentence(gpsUART, "$PMTK314,0,1,0,0,5,5,0,0,0,0,0,0,0,0,0,0,0,0*35"); //send less, interfere less (TODO: fix UART interrupt and TX timer interference)
-      break;
-    }
-  }
 }
 
 void initTX() {  //ADF7012B initialization routine
   //frequency calculation
-  unsigned long f_pfd = 16384000 / rCountDivRatio;
+  uint32_t f_pfd = 16384000 / rCountDivRatio;
   float ratio = (float)txFreq / (float)f_pfd;
   float rest = ratio - (float)NcountDivRatio;
 
   NcountDivRatio = (unsigned int)(txFreq / f_pfd);
-  modDivRatio = (unsigned long)(rest * 4096);
+  modDivRatio = (uint32_t)(rest * 4096);
 
   //check for ADF presence
   digitalWrite(adfChipEN, HIGH);
@@ -262,24 +304,22 @@ void initTX() {  //ADF7012B initialization routine
     errorHandler(5);
   }
 }
-
 void sendADFregister(int regNum) {
-  int i = 0;
-  unsigned long frame = 0;
+  int8_t i = 0;
+  uint32_t frame = 0;
 
-  unsigned long cfgFrameR0 =
-    (0) | ((unsigned long)(fCountOffset & 0x7FF) << 2) | ((unsigned long)(rCountDivRatio & 0xF) << 13) | ((unsigned long)(xtalDoubler & 0x1) << 17) | ((unsigned long)(!crystalOSC & 0x1) << 18) | ((unsigned long)(clkOutDivRatio & 0xF) << 19) | ((unsigned long)(vcoAdjust & 0x3) << 23) | ((unsigned long)(outputDiv & 0x3) << 25);
-  unsigned long cfgFrameR1 =
-    (1) | ((unsigned long)(modDivRatio & 0xFFF) << 2) | ((unsigned long)(NcountDivRatio & 0xFF) << 14) | ((unsigned long)(prescaler & 0x1) << 22);
-  unsigned long cfgFrameR2 =
-    (2) | ((unsigned long)(modulation & 0x3) << 2) | ((unsigned long)(gaussOOK & 0x1) << 4) | ((unsigned long)(paLevel & 0x3F) << 5) | ((unsigned long)(modDev & 0x1FF) << 11) | ((unsigned long)(gfskModCtl & 0x7) << 20) | ((unsigned long)(indexCounter & 0x3) << 23);
-  unsigned long cfgFrameR3 =
-    (3) | ((unsigned long)(PLLenable & 0x1) << 2) | ((unsigned long)(PAenable & 0x1) << 3) | ((unsigned long)(clkOutEnable & 0x1) << 4) | ((unsigned long)(dataInvert & 0x1) << 5) | ((unsigned long)(chargePumpI & 0x3) << 6) | ((unsigned long)(bleedUp & 0x1) << 8) | ((unsigned long)(bleedDown & 0xF) << 9) | ((unsigned long)(vcoDisable & 0x1) << 10) | ((unsigned long)(muxOut & 0xF) << 11) | ((unsigned long)(ldPrecision & 0x1F) << 15) | ((unsigned long)(vcoBiasI & 0xF) << 16) | ((unsigned long)(paBias & 0xF) << 20);
+  uint32_t cfgFrameR0 =
+    (0) | ((uint32_t)(fCountOffset & 0x7FF) << 2) | ((uint32_t)(rCountDivRatio & 0xF) << 13) | ((uint32_t)(xtalDoubler & 0x1) << 17) | ((uint32_t)(!crystalOSC & 0x1) << 18) | ((uint32_t)(clkOutDivRatio & 0xF) << 19) | ((uint32_t)(vcoAdjust & 0x3) << 23) | ((uint32_t)(outputDiv & 0x3) << 25);
+  uint32_t cfgFrameR1 =
+    (1) | ((uint32_t)(modDivRatio & 0xFFF) << 2) | ((uint32_t)(NcountDivRatio & 0xFF) << 14) | ((uint32_t)(prescaler & 0x1) << 22);
+  uint32_t cfgFrameR2 =
+    (2) | ((uint32_t)(modulation & 0x3) << 2) | ((uint32_t)(0 & 0x1) << 4) | ((uint32_t)(paLevel & 0x3F) << 5) | ((uint32_t)(modDev & 0x1FF) << 11) | ((uint32_t)(gfskModCtl & 0x7) << 20) | ((uint32_t)(indexCounter & 0x3) << 23);
+  uint32_t cfgFrameR3 =
+    (3) | ((uint32_t)(PLLenable & 0x1) << 2) | ((uint32_t)(PAenable & 0x1) << 3) | ((uint32_t)(clkOutEnable & 0x1) << 4) | ((uint32_t)(dataInvert & 0x1) << 5) | ((uint32_t)(chargePumpI & 0x3) << 6) | ((uint32_t)(bleedUp & 0x1) << 8) | ((uint32_t)(bleedDown & 0xF) << 9) | ((uint32_t)(vcoDisable & 0x1) << 10) | ((uint32_t)(muxOut & 0xF) << 11) | ((uint32_t)(ldPrecision & 0x1F) << 15) | ((uint32_t)(vcoBiasI & 0xF) << 16) | ((uint32_t)(paBias & 0xF) << 20);
 
   digitalWrite(adfLoadEN, HIGH);
   digitalWrite(adfCfgData, LOW);
   digitalWrite(adfCfgClk, LOW);
-  HAL_Delay(2);
   digitalWrite(adfLoadEN, LOW);
 
   switch (regNum) {
@@ -299,32 +339,25 @@ void sendADFregister(int regNum) {
 
   if (regNum == 1) {
     for (i = 23; i >= 0; i--) {
-      if ((frame & (unsigned long)(1UL << i)) >> i) {
+      if ((frame & (uint32_t)(1UL << i)) >> i) {
         digitalWrite(adfCfgData, HIGH);
       } else {
         digitalWrite(adfCfgData, LOW);
       }
-      delayMicroseconds(10);
       digitalWrite(adfCfgClk, HIGH);
-      delayMicroseconds(1);
       digitalWrite(adfCfgClk, LOW);
-      delayMicroseconds(1);
     }
   } else {
     for (i = 31; i >= 0; i--) {
-      if ((frame & (unsigned long)(1UL << i)) >> i) {
+      if ((frame & (uint32_t)(1UL << i)) >> i) {
         digitalWrite(adfCfgData, HIGH);
       } else {
         digitalWrite(adfCfgData, LOW);
       }
-      delayMicroseconds(10);
       digitalWrite(adfCfgClk, HIGH);
-      delayMicroseconds(1);
       digitalWrite(adfCfgClk, LOW);
-      delayMicroseconds(1);
     }
   }
-  HAL_Delay(5);
   digitalWrite(adfLoadEN, HIGH);
 }
 void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
@@ -424,6 +457,7 @@ void txNextTlmBit() { //TODO: rework, start using structs
 
 //Horus v2 stuff
 uint16_t bitIndex = 0;
+bool frameSent = 0;
 void updateHorusFrame() {
   #ifdef debugHorus
   uint32_t startTime = micros();
@@ -433,11 +467,11 @@ void updateHorusFrame() {
   long gpsAlt;
   tlmFrame.payloadID = payloadID;
   tlmFrame.seqNum = frameCounter;
-  tlmFrame.hour = nmea.getHour();
-  tlmFrame.min = nmea.getMinute();
-  tlmFrame.sec = nmea.getSecond();
-  tlmFrame.lat = nmea.getLatitude()/1000000.0f;
-  tlmFrame.lon = nmea.getLongitude()/1000000.0f;
+  tlmFrame.hour = (nmea.getHour() > 24) ? 0 : nmea.getHour();
+  tlmFrame.min = (nmea.getMinute() > 60) ? 0 : nmea.getMinute();
+  tlmFrame.sec = (nmea.getSecond() > 60) ? 0 : nmea.getSecond();
+  tlmFrame.lat = (nmea.getLatitude()/1000000.0f > 180) ? 0 : nmea.getLatitude()/1000000.0f;
+  tlmFrame.lon = (nmea.getLongitude()/1000000.0f > 180) ? 0 : nmea.getLongitude()/1000000.0f;
   if (nmea.getAltitude(alt)) {
     gpsAlt = alt / 1000;
   } else {
@@ -453,7 +487,7 @@ void updateHorusFrame() {
   frameCounter++;
   memcpy(rawBuffer, &tlmFrame, sizeof(TelemetryFrame));
   encodedLength = horus_l2_encode_tx_packet(codedBuffer, rawBuffer, sizeof(TelemetryFrame));
-
+  frameSent = 0;
   #ifdef debugHorus
   extUART.println("Raw length: " + String(sizeof(TelemetryFrame)));
   extUART.println("Encoded length: " + String(encodedLength));
@@ -472,7 +506,7 @@ void txNext4FSKSymbol() { //hacky, but works surprisingly well
   uint16_t totalBits = encodedLength * 8;
   if (bitIndex >= totalBits) {
     bitIndex = 0;
-    updateHorusFrame();
+    frameSent = 1;
     return;
   }
   
@@ -494,7 +528,7 @@ void txNext4FSKSymbol() { //hacky, but works surprisingly well
 
   modDev = modDevSteps;
   sendADFregister(2);
-  digitalWrite(adfTXdata, outputBit ? HIGH : LOW);
+  digitalWrite(adfTXdata, outputBit ? HIGH : LOW); //change to HAL actuation (PA3)
 }
 uint16_t crc16_ccitt(const uint8_t *data, size_t length) {
     uint16_t crc = 0xFFFF;  // Initial value for CCITT
@@ -598,6 +632,8 @@ float convertTemperature(int16_t rawSDADC) {
 }
 
 void errorHandler(uint8_t err) {  //basic error handler
+  dataUpdate->pause();
+  bitTXtimer->pause();
   while (true) {
     okLEDtimer->pause();
     okLEDtimer->setPWM(2, okLED, 3, 50);
@@ -642,6 +678,17 @@ void errorHandler(uint8_t err) {  //basic error handler
     okLEDtimer->resume();
     HAL_Delay(3000);
   }
+}
+
+void loop() {  //empty for now, will have IWDG refresh later(tm)
+  parseGNSSframe();
+
+  //check if horus frame needs updating
+  #ifdef modHorus
+  if (frameSent) {
+    updateHorusFrame();
+  }
+  #endif
 }
 
 //during debugging this i have hugged my wife for a total of: 7 hours
@@ -796,7 +843,7 @@ void SystemClock_Config() {
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();

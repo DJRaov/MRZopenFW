@@ -20,7 +20,7 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
     * UKHAS-compliant formatting, 7N2 (configurable)
     * Customizable baud rates
     * Tone spacing quantizable down to 125hz (250hz default)
-  * Morse code/CW
+  * Morse code/CW (soon)
     * Customizable WPM
     * UKHAS-compliant formatting
 - **Pre-flight check** via onboard UART
@@ -45,9 +45,9 @@ NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested
 ### Protocol Selection (Future)
 Protocol selection will be done via compile-time defines:
 ```cpp
-// #define modHorus     // Default - currently implemented
-// #define modAPRS      // Planned
-// #define modRTTY      // Planned
+#define modHorus     // Default - currently implemented
+#define modAPRS      // Planned
+#define modRTTY      // Planned
 ```
 
 ### Debug Options

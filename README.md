@@ -23,21 +23,19 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
   * Morse code/CW (soon)
     * Customizable WPM
     * UKHAS-compliant formatting
-- **Pre-flight check** via onboard UART
+- **Pre-flight check** via onboard UART and LED
 
 ## Supported sonde revisions
 - MRZ-N1 (SIM68)
-
-NOTE: Last supported serial is ~406000 (manufactured around mid-2024) - newer sondes have an incompatible Artery MCU
+  * NOTE: Last supported serial is ~406000 (manufactured around mid-2024) - newer sondes have an incompatible Artery MCU
 - MRZ-N1 (U-Blox)
-
-NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested, SIM68-specific cmds may cause unexpected behavior
+  * NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested, SIM68-specific cmds may cause unexpected behavior
 
 ## Dependencies
 - STM32duino core
 - [MicroNMEA library](https://github.com/stevemarple/MicroNMEA)
 
-**Included Libraries** (in `src/` directory):
+**Included Libraries** (in `src/`):
 - Project Horus FEC library (GPL 3.0) - Forward error correction for Horus v2
 
 ## Configuration
@@ -62,10 +60,11 @@ Enable debug output by uncommenting:
 ## Hardware Modifications
 
 Some more advanced features require hardware modifications. Refer to the `mods/` directory for:
-- Additional sensor integration guides (soon)
+- Additional sensor integration guides
 - Adding GFSK support
 - Wiring up PPS
 - Wiring up non-stock sensors
+(all coming soon)
 
 ## Contributing
 
@@ -87,7 +86,3 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 - Project Horus team (David Rowe) for the FEC library and protocol specification
 - Steve Marple for the MicroNMEA library
 - STM32duino community for platform support
-
-## Disclaimer
-
-This firmware is provided "as is", without warranty.

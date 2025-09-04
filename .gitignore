@@ -4,3 +4,5 @@
 .settings/
 mrz-fw.ioc
 Debug/
+.vscode
+.theia/settings.json

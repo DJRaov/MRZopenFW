@@ -186,7 +186,7 @@ void setup() {
   analogReadResolution(12);
 
   //start initializing stuff
-  digitalWrite(adfChipEN, LOW);
+  GPIOB->BSRR = (1U << 8+16U); //ADF chipEN low
   GPIOA->BSRR = (1U << 4); //turns on LED; we fast like that
   extUART.begin(115200);
   gpsUART.begin(9600);
@@ -330,10 +330,10 @@ void sendADFregister(int regNum) {
   uint32_t cfgFrameR3 =
     (3) | ((uint32_t)(PLLenable & 0x1) << 2) | ((uint32_t)(PAenable & 0x1) << 3) | ((uint32_t)(clkOutEnable & 0x1) << 4) | ((uint32_t)(dataInvert & 0x1) << 5) | ((uint32_t)(chargePumpI & 0x3) << 6) | ((uint32_t)(bleedUp & 0x1) << 8) | ((uint32_t)(bleedDown & 0xF) << 9) | ((uint32_t)(vcoDisable & 0x1) << 10) | ((uint32_t)(muxOut & 0xF) << 11) | ((uint32_t)(ldPrecision & 0x1F) << 15) | ((uint32_t)(vcoBiasI & 0xF) << 16) | ((uint32_t)(paBias & 0xF) << 20);
 
-  GPIOB->BSRR = (1U << 9);       //set adfLoadEN high
-  GPIOC->BSRR = (1U << 14+16U);  //set adfCfgData low
-  GPIOC->BSRR = (1U << 13+16U);  //set adfCfgClk low
-  GPIOB->BSRR = (1U << 9+16U);   //set adfLoadEN low
+  GPIOB->BSRR = (1U << 9);              //set adfLoadEN high
+  GPIOC->BSRR = (1U << 14+16U);         //set adfCfgData low
+  GPIOC->BSRR = (1U << 13+16U);         //set adfCfgClk low
+  GPIOB->BSRR = (1U << 9+16U);          //set adfLoadEN low
 
   switch (regNum) {
     case 0: frame = cfgFrameR0; break;
@@ -345,25 +345,25 @@ void sendADFregister(int regNum) {
   if (regNum == 1) {
     for (i = 23; i >= 0; i--) {
       if ((frame & (uint32_t)(1UL << i)) >> i) {
-        GPIOC->BSRR = (1U << 14); //set adfCfgData high
+        GPIOC->BSRR = (1U << 14);       //set adfCfgData high
       } else {
-        GPIOC->BSRR = (1U << 14 + 16U); //set adfCfgData low
+        GPIOC->BSRR = (1U << 14+16U); //set adfCfgData low
       }
-      GPIOC->BSRR = (1U << 13); //clock the clock
+      GPIOC->BSRR = (1U << 13);         //clock the clock
       GPIOC->BSRR = (1U << 13+16U);
     }
   } else {
     for (i = 31; i >= 0; i--) {
       if ((frame & (uint32_t)(1UL << i)) >> i) {
-        GPIOC->BSRR = (1U << 14); //set adfCfgData high
+        GPIOC->BSRR = (1U << 14);       //set adfCfgData high
       } else {
-        GPIOC->BSRR = (1U << 14+16U); //set adfCfgData low
+        GPIOC->BSRR = (1U << 14+16U);   //set adfCfgData low
       }
-      GPIOC->BSRR = (1U << 13); //clock the clock
-      GPIOC->BSRR = (1U << 13+16U);
+      GPIOC->BSRR = (1U << 13);         //clock the clock
+      GPIOC->BSRR = (1U << 13+16U);     //clock the clock
     }
   }
-  GPIOB->BSRR = (1U << 9); //set adfLoadEN high
+  GPIOB->BSRR = (1U << 9);              //set adfLoadEN high
 }
 void lockVCO() {   //VCO lock algo (yoinked straight from PecanPico)
   muxOut = 0b101;  //set analog lock detect
@@ -478,6 +478,8 @@ void updateHorusFrame() {
   static uint16_t frameCounter;
   long alt;
   long gpsAlt;
+
+  GPIOA->BSRR=(1U << 4); //heartbeat
   tlmFrame.payloadID = payloadID;
   tlmFrame.seqNum = frameCounter;
   tlmFrame.hour = (nmea.getHour() > 24) ? 0 : nmea.getHour();
@@ -501,6 +503,7 @@ void updateHorusFrame() {
   memcpy(rawBuffer, &tlmFrame, sizeof(TelemetryFrame));
   encodedLength = horus_l2_encode_tx_packet(codedBuffer, rawBuffer, sizeof(TelemetryFrame));
   frameSent = 0;
+  GPIOA->BSRR=(1U<<4+16U); //heartbeat
 
   #ifdef debug
   extUART.print("Horus v2 frame refreshed!\n");
@@ -582,14 +585,6 @@ void parseGNSSframe() {  //GNSS frame parser
     if (nmea.process(c)) {
       int gpsAlt = 0;
       long alt;
-      if (nmea.getNumSatellites() == 3) {
-        okLEDtimer->setPWM(1, okLED, 2, 50);
-      } else if (nmea.getNumSatellites() >= 4) {
-        okLEDtimer->pause();
-        digitalWrite(okLED, HIGH);
-      } else {
-        okLEDtimer->setPWM(2, okLED, 4, 50);
-      }
       if (nmea.getAltitude(alt)) {
         gpsAlt = alt / 1000;
       } else {
@@ -655,6 +650,8 @@ void errorHandler(uint8_t err) {  //basic error handler
   while (true) {
     okLEDtimer->pause();
     okLEDtimer->setPWM(2, okLED, 3, 50);
+    GPIOA->BSRR=(1U << 4+16U); //turn okLED off
+    HAL_Delay(100);
     okLEDtimer->resume();
 
     switch (err) {
@@ -711,43 +708,8 @@ void loop() {  //empty for now, will have IWDG refresh later(tm)
   #endif
 }
 
-//during debugging this i have hugged my wife for a total of: 7 hours
-void initSDADC() {
-  // Enable SDADC1 and SDADC2 power domains
-  HAL_PWREx_EnableSDADC(PWR_SDADC_ANALOG1 | PWR_SDADC_ANALOG2);
-
-  MX_SDADC1_Init();
-  // Select configuration index 0 for SDADC1
-  if (HAL_SDADC_SelectRegularTrigger(&hsdadc1, SDADC_SOFTWARE_TRIGGER) != HAL_OK) errorHandler(1);
-  if (HAL_SDADC_CalibrationStart(&hsdadc1, SDADC_CALIBRATION_SEQ_1) != HAL_OK) errorHandler(6);
-  if (HAL_SDADC_PollForCalibEvent(&hsdadc1, 10000) == HAL_OK) {
-    #ifdef debug
-    extUART.println("SDADC1 initialized and calibrated.");
-    #endif
-  } else errorHandler(7);
-  if (HAL_SDADC_AssociateChannelConfig(&hsdadc1, SDADC_CHANNEL_8, SDADC_CONF_INDEX_0) != HAL_OK) errorHandler(1);
-  if (HAL_SDADC_ConfigChannel(&hsdadc1, SDADC_CHANNEL_8, SDADC_CONTINUOUS_CONV_ON) != HAL_OK) errorHandler(1);
-  HAL_SDADC_SelectRegularTrigger(&hsdadc1, SDADC_SOFTWARE_TRIGGER);
-  HAL_SDADC_Start(&hsdadc1);
-
-  MX_SDADC2_Init();
-  // Select configuration index 0 for SDADC2
-  if (HAL_SDADC_SelectRegularTrigger(&hsdadc2, SDADC_SOFTWARE_TRIGGER) != HAL_OK) errorHandler(1);
-  if (HAL_SDADC_CalibrationStart(&hsdadc2, SDADC_CALIBRATION_SEQ_1) != HAL_OK) errorHandler(6);
-  if (HAL_SDADC_PollForCalibEvent(&hsdadc2, 10000) == HAL_OK) {
-    #ifdef debug
-    extUART.println("SDADC2 initialized and calibrated.");
-    #endif
-  } else errorHandler(7);
-  if (HAL_SDADC_AssociateChannelConfig(&hsdadc2, SDADC_CHANNEL_7, SDADC_CONF_INDEX_0) != HAL_OK) errorHandler(1);
-  if (HAL_SDADC_ConfigChannel(&hsdadc2, SDADC_CHANNEL_7, SDADC_CONTINUOUS_CONV_ON) != HAL_OK) errorHandler(1);
-  HAL_SDADC_SelectRegularTrigger(&hsdadc2, SDADC_SOFTWARE_TRIGGER);
-  HAL_SDADC_Start(&hsdadc2);
-}
-
 #ifdef stockBoom
 // STM32CubeMX generated code follows
-/* SDADC1 init function */
 void MX_SDADC1_Init(){
 
   SDADC_ConfParamTypeDef ConfParamStruct = {};
@@ -773,7 +735,6 @@ void MX_SDADC1_Init(){
     errorHandler(1);
   }
 }
-/* SDADC2 init function */
 void MX_SDADC2_Init(){
   SDADC_ConfParamTypeDef ConfParamStruct = {};
   hsdadc2.Instance = SDADC2;
@@ -828,7 +789,6 @@ void HAL_SDADC_MspInit(SDADC_HandleTypeDef* sdadcHandle) {
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
   }
 }
-
 void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle){
 
   if(sdadcHandle->Instance==SDADC1)
@@ -852,6 +812,40 @@ void HAL_SDADC_MspDeInit(SDADC_HandleTypeDef* sdadcHandle){
     HAL_GPIO_DeInit(GPIOE, GPIO_PIN_9);
   }
 }
+
+void initSDADC() { //during debugging this i have hugged my wife for a total of: 8 hours
+  // Enable SDADC1 and SDADC2 power domains
+  HAL_PWREx_EnableSDADC(PWR_SDADC_ANALOG1 | PWR_SDADC_ANALOG2);
+
+  MX_SDADC1_Init();
+  // Select configuration index 0 for SDADC1
+  if (HAL_SDADC_SelectRegularTrigger(&hsdadc1, SDADC_SOFTWARE_TRIGGER) != HAL_OK) errorHandler(1);
+  if (HAL_SDADC_CalibrationStart(&hsdadc1, SDADC_CALIBRATION_SEQ_1) != HAL_OK) errorHandler(6);
+  if (HAL_SDADC_PollForCalibEvent(&hsdadc1, 10000) == HAL_OK) {
+    #ifdef debug
+    extUART.println("SDADC1 initialized and calibrated.");
+    #endif
+  } else errorHandler(7);
+  if (HAL_SDADC_AssociateChannelConfig(&hsdadc1, SDADC_CHANNEL_8, SDADC_CONF_INDEX_0) != HAL_OK) errorHandler(1);
+  if (HAL_SDADC_ConfigChannel(&hsdadc1, SDADC_CHANNEL_8, SDADC_CONTINUOUS_CONV_ON) != HAL_OK) errorHandler(1);
+  HAL_SDADC_SelectRegularTrigger(&hsdadc1, SDADC_SOFTWARE_TRIGGER);
+  HAL_SDADC_Start(&hsdadc1);
+
+  MX_SDADC2_Init();
+  // Select configuration index 0 for SDADC2
+  if (HAL_SDADC_SelectRegularTrigger(&hsdadc2, SDADC_SOFTWARE_TRIGGER) != HAL_OK) errorHandler(1);
+  if (HAL_SDADC_CalibrationStart(&hsdadc2, SDADC_CALIBRATION_SEQ_1) != HAL_OK) errorHandler(6);
+  if (HAL_SDADC_PollForCalibEvent(&hsdadc2, 10000) == HAL_OK) {
+    #ifdef debug
+    extUART.println("SDADC2 initialized and calibrated.");
+    #endif
+  } else errorHandler(7);
+  if (HAL_SDADC_AssociateChannelConfig(&hsdadc2, SDADC_CHANNEL_7, SDADC_CONF_INDEX_0) != HAL_OK) errorHandler(1);
+  if (HAL_SDADC_ConfigChannel(&hsdadc2, SDADC_CHANNEL_7, SDADC_CONTINUOUS_CONV_ON) != HAL_OK) errorHandler(1);
+  HAL_SDADC_SelectRegularTrigger(&hsdadc2, SDADC_SOFTWARE_TRIGGER);
+  HAL_SDADC_Start(&hsdadc2);
+}
+#endif
 
 void SystemClock_Config(void){
   RCC_OscInitTypeDef RCC_OscInitStruct = {};
@@ -898,4 +892,3 @@ void SystemClock_Config(void){
   HAL_PWREx_EnableSDADC(PWR_SDADC_ANALOG1);
   HAL_PWREx_EnableSDADC(PWR_SDADC_ANALOG2);
 }
-#endif

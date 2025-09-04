@@ -198,6 +198,7 @@ void setup() {
   //Telemetry bit transmit interrupt (Reading the GNSS frame seems to be blocking, woulda done it in loop() otherwise)
   #ifdef modHorus
   rCountDivRatio = 8;
+  modDev = 3;
   bitTXtimer->setOverflow(100, HERTZ_FORMAT);
   bitTXtimer->attachInterrupt(txNext4FSKSymbol);
   #endif

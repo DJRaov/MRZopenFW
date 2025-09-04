@@ -26,10 +26,11 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 - **Pre-flight check** via onboard UART and LED
 
 ## Supported sonde revisions
-- MRZ-N1 (SIM68)
-  * NOTE: Last supported serial is ~406000 (manufactured around mid-2024) - newer sondes have an incompatible Artery MCU
-- MRZ-N1 (U-Blox)
+- MRZ-N1 (v.2)
   * NOTE: Phased out since mid-2023, last serials seem to be around 305000. Untested, SIM68-specific cmds may cause unexpected behavior
+- MRZ-N1-SIM68 (v.3)
+  * NOTE: Last supported serial is ~406000 (manufactured around mid-2024)
+- MRZ-N1-ART68 (v.4) (soon)
 
 ## Dependencies
 - STM32duino core
@@ -60,10 +61,9 @@ Enable debug output by uncommenting:
 ## Hardware Modifications
 
 Some more advanced features require hardware modifications. Refer to the `mods/` directory for:
-- Additional sensor integration guides
-- Adding GFSK support
-- Wiring up PPS
-- Wiring up non-stock sensors
+- Additional sensor integration
+- VCO inductor trimming
+- Reducing power draw
 (all coming soon)
 
 ## Contributing

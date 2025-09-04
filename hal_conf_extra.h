@@ -1,5 +1,0 @@
-#ifndef _HAL_CONF_EXTRA_H_
-#define _HAL_CONF_EXTRA_H_
-#define HAL_SDADC_MODULE_ENABLED
-#define HAL_PWR_MODULE_ENABLED
-#endif

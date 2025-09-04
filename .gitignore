@@ -6,3 +6,4 @@ mrz-fw.ioc
 Debug/
 .vscode
 .theia/settings.json
+STM32F373C8TX_FLASH.ld

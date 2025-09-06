@@ -101,7 +101,7 @@ TelemetryFrame tlmFrame;
 #endif
 
 //NMEA Parser setup
-char gnssFrameBuffer[127]; //okay maybe going with 255 bytes was a bit too much
+char gnssFrameBuffer[]; //okay maybe going with 255 bytes was a bit too much
 MicroNMEA nmea(gnssFrameBuffer, sizeof(gnssFrameBuffer));
 
 void setup() {

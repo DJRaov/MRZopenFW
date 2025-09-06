@@ -36,13 +36,13 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 - STM32duino core
 - [MicroNMEA library](https://github.com/stevemarple/MicroNMEA)
 
-**Included Libraries** (in `src/`):
+**Included Libraries** (in `src/libs`):
 - Project Horus FEC library (GPL 3.0) - Forward error correction for Horus v2
 
 ## Configuration
 
-### Protocol Selection (Future)
-Protocol selection will be done via compile-time defines:
+### Protocol Selection
+Protocol selection is done via compile-time defines:
 ```cpp
 #define modHorus     // Default - currently implemented
 #define modAPRS      // Planned
@@ -58,30 +58,39 @@ Enable debug output by uncommenting:
 #define debugGNSS       // GNSS-specific debug output
 ```
 
-## Hardware Modifications
+### Sonde ID and transmit frequency
+Sonde ID and transmit frequency are defined in the main .ino file right after all the includes:
+```cpp
+uint16_t payloadID = 0;      //default, change before launch!
+uint32_t txFreq = 437600000; //in Hz
+```
 
+## Compilation
+**BIG NOTE: You need to add the STM32F373 definition in boards.txt yourself before attempting to compile!**
+just press the upload sketch button lol
+it is as shrimple as that
+
+## Hardware Modifications
 Some more advanced features require hardware modifications. Refer to the `mods/` directory for:
 - Additional sensor integration
 - VCO inductor trimming
 - Reducing power draw
 (all coming soon)
 
-## Contributing
-
-Contributions are welcome! Please feel free to:
-- Report bugs and issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
+## Roadmap
+- u-blox GNSS support (Mid/Late September 2025)
+- Full rebase to STM32 HAL (October/November 2025)
+- Improved stock sensor boom accuracy (Early 2026)
+- MRZ-N1-ART68 support (post-rebase, Early 2026)
+- Additional sensor support (post-rebase, Early 2026)
+- APRS, RTTY and CW support (post-rebase, Early 2026)
+- Multi-QRG support (post-rebase, Early 2026)
 
 ## License
-
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Credits
-
 **Author**: Raov (2025)
-
 **Acknowledgments**:
 - Project Horus team (David Rowe) for the FEC library and protocol specification
 - Steve Marple for the MicroNMEA library

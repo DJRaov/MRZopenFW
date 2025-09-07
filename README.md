@@ -34,7 +34,6 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 
 ## Dependencies
 - STM32duino core
-- [MicroNMEA library](https://github.com/stevemarple/MicroNMEA)
 
 **Included Libraries** (in `src/libs`):
 - [Project Horus FEC encoder](https://github.com/projecthorus/horusdemodlib) (src/libs/horusv2)
@@ -78,6 +77,7 @@ Some more advanced features require hardware modifications. Refer to the `mods/`
 - Additional sensor integration
 - VCO inductor trimming
 - Reducing power draw
+  
 (all coming soon)
 
 ## Roadmap

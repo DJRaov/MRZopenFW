@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <HardwareTimer.h>
-#include <MicroNMEA.h>
+#include "src/libs/micronmea/MicroNMEA.h"
 #include <stm32f3xx_hal.h>
 #include <stm32f3xx_hal_sdadc.h>
 

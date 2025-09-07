@@ -37,7 +37,7 @@ PE9: Humidity SDADC (linearized, thankfully)
 #include <Math.h>
 #include <HardwareSerial.h>
 #include <HardwareTimer.h>
-#include <MicroNMEA.h>
+#include "src/libs/micronmea/MicroNMEA.h"
 #include "src/libs/horusv2/horus_l2.h"
 //#include <STM32LowPower.h> soon:tm:
 //#include <low_power.h>

@@ -37,7 +37,8 @@ An open-source firmware for the MRZ-N1 radiosonde series manufactured by Radiy.
 - [MicroNMEA library](https://github.com/stevemarple/MicroNMEA)
 
 **Included Libraries** (in `src/libs`):
-- Project Horus FEC library (GPL 3.0) - Forward error correction for Horus v2
+- [Project Horus FEC encoder](https://github.com/projecthorus/horusdemodlib) (src/libs/horusv2)
+- [MicroNMEA](https://github.com/stevemarple/MicroNMEA) (src/libs/micronmea)
 
 ## Configuration
 
@@ -67,7 +68,9 @@ uint32_t txFreq = 437600000; //in Hz
 
 ## Compilation
 **BIG NOTE: You need to add the STM32F373 definition in boards.txt yourself before attempting to compile!**
+
 just press the upload sketch button lol
+
 it is as shrimple as that
 
 ## Hardware Modifications
@@ -91,6 +94,7 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Credits
 **Author**: Raov (2025)
+
 **Acknowledgments**:
 - Project Horus team (David Rowe) for the FEC library and protocol specification
 - Steve Marple for the MicroNMEA library
